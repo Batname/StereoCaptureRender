@@ -52,7 +52,9 @@ public:
 	void InitCaptureComponent(USceneCaptureComponent2D* EyeCaptureComponent, float HFov, float VFov, EStereoscopicPass InStereoPass);
 	void ReadCaptureComponent(USceneCaptureComponent2D* EyeCaptureComponent, TArray<FColor>& Buffer);
 
-	void SaveFrame(const TArray<FColor>& Buffer, const FString& Name, EImageFormat::Type ImageFormat);
+	void SaveFrame(const TArray<FColor>& Buffer, const FString& Name, EImageFormat::Type ImageFormat, float Width, float Height);
+	void SaveStereoFrame(const TArray<FColor>& LeftEyeBuffer, const TArray<FColor>& RightEyeBuffer, const FString& Name, EImageFormat::Type ImageFormat);
+
 	
 private:
 	IImageWrapperModule& ImageWrapperModule;

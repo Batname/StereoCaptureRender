@@ -124,16 +124,52 @@ void UStereoCapturer::ReadCaptureComponent(USceneCaptureComponent2D * EyeCapture
 	RenderTarget->ReadPixelsPtr(Buffer.GetData(), readSurfaceDataFlags, Area);
 }
 
-void UStereoCapturer::SaveFrame(const TArray<FColor>& Buffer, const FString & Name, EImageFormat::Type ImageFormat)
+void UStereoCapturer::SaveFrame(const TArray<FColor>& Buffer, const FString & Name, EImageFormat::Type ImageFormat, float Width, float Height)
 {
 	FString FrameString = FString::Printf(TEXT("%s.png"), *Name);
 	FString Filepath = OutputDir / Timestamp / FrameString;
 
 	//Read Whole Capture Buffer
 	IImageWrapperPtr ImageWrapper = ImageWrapperModule.CreateImageWrapper(ImageFormat);
-	ImageWrapper->SetRaw(Buffer.GetData(), Buffer.GetAllocatedSize(), CaptureWidth, CaptureHeight, ERGBFormat::BGRA, 8);
+	ImageWrapper->SetRaw(Buffer.GetData(), Buffer.GetAllocatedSize(), Width, Height, ERGBFormat::BGRA, 8);
 	const TArray<uint8>& ImageData = ImageWrapper->GetCompressed(100);
 	FFileHelper::SaveArrayToFile(ImageData, *Filepath);
+}
+
+void UStereoCapturer::SaveStereoFrame(const TArray<FColor>& LeftEyeBuffer, const TArray<FColor>& RightEyeBuffer, const FString & Name, EImageFormat::Type ImageFormat)
+{
+	TArray<FColor> StereoBuffer;
+
+	StereoBuffer.SetNum(LeftEyeBuffer.Num() + RightEyeBuffer.Num());
+
+	long int i;
+	int y;
+	long int HalfStereo = 0;
+	bool bIsNextLeft = true;
+
+	for (i = 0; i < StereoBuffer.Num(); i += CaptureWidth)
+	{
+		if (bIsNextLeft) // Write left image
+		{
+			HalfStereo = i / 2;
+			for (y = 0; y < CaptureWidth; y++)
+			{
+				StereoBuffer[i + y] = LeftEyeBuffer[HalfStereo + y];
+			}
+			bIsNextLeft = false;
+		}
+		else // Write right image
+		{
+			for (y = 0; y < CaptureWidth; y++)
+			{
+				StereoBuffer[i + y] = RightEyeBuffer[HalfStereo + y];
+			}
+
+			bIsNextLeft = true;
+		}
+	}
+
+	SaveFrame(StereoBuffer, Name, ImageFormat, CaptureWidth * 2, CaptureHeight);
 }
 
 void UStereoCapturer::Reset()
@@ -215,13 +251,14 @@ void UStereoCapturer::Tick(float DeltaTime)
 	UE_LOG(LogTemp, Warning, TEXT("RightEyeBuffer.Num, %d"), RightEyeBuffer.Num());
 
 	// Save Image
-	SaveFrame(LeftEyeBuffer, TEXT("Left"), EImageFormat::PNG);
-	SaveFrame(RightEyeBuffer, TEXT("Right"), EImageFormat::PNG);
+	SaveStereoFrame(LeftEyeBuffer, RightEyeBuffer, TEXT("Stereo"), EImageFormat::PNG);
+	//SaveFrame(LeftEyeBuffer, TEXT("Left"), EImageFormat::PNG, CaptureWidth, CaptureHeight);
+	//SaveFrame(RightEyeBuffer, TEXT("Right"), EImageFormat::PNG, CaptureWidth, CaptureHeight);
 
 	// Dump out how long the process took
 	FDateTime EndTime = FDateTime::UtcNow();
 	FTimespan Duration = EndTime - StartTime;
-	UE_LOG(LogTemp, Log, TEXT("Duration: %g seconds"), Duration.GetTotalSeconds());
+	UE_LOG(LogTemp, Warning, TEXT("Duration: %g seconds"), Duration.GetTotalSeconds());
 	StartTime = EndTime;
 
 	// Clean up
