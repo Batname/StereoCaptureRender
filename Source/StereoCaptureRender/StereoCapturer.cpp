@@ -58,8 +58,6 @@ UWorld * UStereoCapturer::GetTickableGameObjectWorld() const
 
 void UStereoCapturer::SetInitialState(AStereoCaptureRenderCharacter* StereoCaptureRenderChar)
 {
-	UE_LOG(LogTemp, Warning, TEXT("SetInitialState"));
-
 	if (bIsTicking)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Already capturing a scene; concurrent captures are not allowed"));
@@ -95,7 +93,7 @@ void UStereoCapturer::InitCaptureComponent(USceneCaptureComponent2D * EyeCapture
 	EyeCaptureComponent->SetVisibility( true );
 	EyeCaptureComponent->SetHiddenInGame( false );
 
-	//EyeCaptureComponent->bUseCustomProjectionMatrix = true;
+	EyeCaptureComponent->bUseCustomProjectionMatrix = true;
 
 	EyeCaptureComponent->CaptureStereoPass = InStereoPass;
 	EyeCaptureComponent->FOVAngle = FMath::Max( HFov, VFov );
@@ -231,29 +229,19 @@ void UStereoCapturer::Tick(float DeltaTime)
 	FRotator Rotation;
 	CapturePlayerController->GetPlayerViewPoint(Location, Rotation);
 
-	UE_LOG(LogTemp, Warning, TEXT("Location, %s"), *Location.ToString());
-	UE_LOG(LogTemp, Warning, TEXT("Rotation, %s"), *Rotation.ToString());
-
 	SetPositionAndRotation(LeftEyeCaptureComponent, Location, Rotation);
 	SetPositionAndRotation(RigntEyeCaptureComponent, Location, Rotation);
 
 	// Set Matrices
-	//SetCustomProjectionMatrix(LeftEyeCaptureComponent);
-	//SetCustomProjectionMatrix(RigntEyeCaptureComponent);
+	SetCustomProjectionMatrix(LeftEyeCaptureComponent);
+	SetCustomProjectionMatrix(RigntEyeCaptureComponent);
 
 	// Read data from texture;
 	ReadCaptureComponent(LeftEyeCaptureComponent, LeftEyeBuffer);
 	ReadCaptureComponent(RigntEyeCaptureComponent, RightEyeBuffer);
 
-	UE_LOG(LogTemp, Warning, TEXT("LeftEyeBuffer.GetAllocatedSize, %d"), LeftEyeBuffer.GetAllocatedSize());
-	UE_LOG(LogTemp, Warning, TEXT("RightEyeBuffer.GetAllocatedSize, %d"), RightEyeBuffer.GetAllocatedSize());
-	UE_LOG(LogTemp, Warning, TEXT("LeftEyeBuffer.Num, %d"), LeftEyeBuffer.Num());
-	UE_LOG(LogTemp, Warning, TEXT("RightEyeBuffer.Num, %d"), RightEyeBuffer.Num());
-
 	// Save Image
 	SaveStereoFrame(LeftEyeBuffer, RightEyeBuffer, TEXT("Stereo"), EImageFormat::PNG);
-	//SaveFrame(LeftEyeBuffer, TEXT("Left"), EImageFormat::PNG, CaptureWidth, CaptureHeight);
-	//SaveFrame(RightEyeBuffer, TEXT("Right"), EImageFormat::PNG, CaptureWidth, CaptureHeight);
 
 	// Dump out how long the process took
 	FDateTime EndTime = FDateTime::UtcNow();
