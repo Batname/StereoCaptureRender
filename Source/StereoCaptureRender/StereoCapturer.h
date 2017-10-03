@@ -55,6 +55,7 @@ public:
 	void SaveFrame(const TArray<FColor>& Buffer, const FString& Name, EImageFormat::Type ImageFormat, float Width, float Height);
 	void SaveStereoFrame(const TArray<FColor>& LeftEyeBuffer, const TArray<FColor>& RightEyeBuffer, const FString& Name, EImageFormat::Type ImageFormat);
 
+	void ReadDone();
 	
 private:
 	IImageWrapperModule& ImageWrapperModule;
@@ -85,5 +86,12 @@ private:
 	FString OutputDir;
 
 	FString FrameDescriptors;
+
+private:
+	bool bReadPixelsStarted = false;
+	FRenderCommandFence ReadPixelFence;
+
+	TArray<FColor> LeftEyeBuffer;
+	TArray<FColor> RightEyeBuffer;
 
 };

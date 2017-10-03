@@ -44,6 +44,10 @@ UStereoCapturer::UStereoCapturer()
 
 	InitCaptureComponent(LeftEyeCaptureComponent, HFov, VFov, EStereoscopicPass::eSSP_LEFT_EYE);
 	InitCaptureComponent(RigntEyeCaptureComponent, HFov, VFov, EStereoscopicPass::eSSP_RIGHT_EYE);
+
+	// Init Buffer with size
+	LeftEyeBuffer.AddUninitialized(CaptureWidth * CaptureHeight);
+	RightEyeBuffer.AddUninitialized(CaptureWidth * CaptureHeight);
 }
 
 UWorld * UStereoCapturer::GetTickableGameObjectWorld() const
@@ -86,6 +90,10 @@ void UStereoCapturer::SetInitialState(AStereoCaptureRenderCharacter* StereoCaptu
 	StartTime = FDateTime::UtcNow();
 	OverallStartTime = StartTime;
 	bIsTicking = true;
+
+	// to i initiate reading
+	ReadPixelFence.BeginFence();
+	bReadPixelsStarted = true;
 }
 
 void UStereoCapturer::InitCaptureComponent(USceneCaptureComponent2D * EyeCaptureComponent, float HFov, float VFov, EStereoscopicPass InStereoPass)
@@ -97,7 +105,7 @@ void UStereoCapturer::InitCaptureComponent(USceneCaptureComponent2D * EyeCapture
 
 	EyeCaptureComponent->CaptureStereoPass = InStereoPass;
 	EyeCaptureComponent->FOVAngle = FMath::Max( HFov, VFov );
-	EyeCaptureComponent->bCaptureEveryFrame = false;
+	EyeCaptureComponent->bCaptureEveryFrame = true;
 	EyeCaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 
 	const FName TargetName = MakeUniqueObjectName(this, UTextureRenderTarget2D::StaticClass(), TEXT("SceneCaptureTextureTarget"));
@@ -111,15 +119,50 @@ void UStereoCapturer::ReadCaptureComponent(USceneCaptureComponent2D * EyeCapture
 {
 	EyeCaptureComponent->CaptureScene();
 
-	FTextureRenderTargetResource* RenderTarget = EyeCaptureComponent->TextureTarget->GameThread_GetRenderTargetResource();
+	//FTextureRenderTargetResource* RenderTarget = EyeCaptureComponent->TextureTarget->GameThread_GetRenderTargetResource();
 
-	Buffer.AddUninitialized(CaptureWidth * CaptureHeight);
+	// Buffer.AddUninitialized(CaptureWidth * CaptureHeight);
 
-	// Read pixels
-	FIntRect Area(0, 0, CaptureWidth, CaptureHeight);
+	//// Read pixels
+	//FIntRect Area(0, 0, CaptureWidth, CaptureHeight);
+	//auto readSurfaceDataFlags = FReadSurfaceDataFlags();
+	//readSurfaceDataFlags.SetLinearToGamma(false);
+	//RenderTarget->ReadPixelsPtr(Buffer.GetData(), readSurfaceDataFlags, Area);
+
+	FTextureRenderTargetResource* RenderResource = EyeCaptureComponent->TextureTarget->GameThread_GetRenderTargetResource();
 	auto readSurfaceDataFlags = FReadSurfaceDataFlags();
 	readSurfaceDataFlags.SetLinearToGamma(false);
-	RenderTarget->ReadPixelsPtr(Buffer.GetData(), readSurfaceDataFlags, Area);
+
+	// Read the render target surface data back.	
+	struct FReadSurfaceContext
+	{
+		FRenderTarget* SrcRenderTarget;
+		TArray<FColor>* OutData;
+		FIntRect Rect;
+		FReadSurfaceDataFlags Flags;
+	};
+
+	LeftEyeBuffer.Reset();
+	FReadSurfaceContext ReadSurfaceContext =
+	{
+		RenderResource,
+		&LeftEyeBuffer,
+		FIntRect(0, 0, CaptureWidth, CaptureHeight),
+		readSurfaceDataFlags
+	};
+
+	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
+		ReadSurfaceCommand,
+		FReadSurfaceContext, Context, ReadSurfaceContext,
+		{
+			RHICmdList.ReadSurfaceData(
+				Context.SrcRenderTarget->GetRenderTargetTexture(),
+				Context.Rect,
+				*Context.OutData,
+				Context.Flags
+			);
+		});
+
 }
 
 void UStereoCapturer::SaveFrame(const TArray<FColor>& Buffer, const FString & Name, EImageFormat::Type ImageFormat, float Width, float Height)
@@ -213,9 +256,31 @@ void UStereoCapturer::SetCustomProjectionMatrix(USceneCaptureComponent2D * EyeCa
 	EyeCaptureComponent->CustomProjectionMatrix = CustomProjectionMatrix;
 }
 
+void UStereoCapturer::ReadDone()
+{
+	bIsTicking = false;
+	StereoCaptureRenderCharacter->Cleanup();
+}
 
 void UStereoCapturer::Tick(float DeltaTime)
 {
+	if (bReadPixelsStarted && ReadPixelFence.IsFenceComplete())
+	{
+		// do something with the pixels
+		UE_LOG(LogTemp, Warning, TEXT(">> LeftEyeBuffer.Num %d"), LeftEyeBuffer.Num());
+		UE_LOG(LogTemp, Warning, TEXT(">> GetAllocatedSize %d"), LeftEyeBuffer.GetAllocatedSize());
+
+
+		UE_LOG(LogTemp, Warning, TEXT(">> LeftEyeBuffer[0] %s"), *LeftEyeBuffer[0].ToString());
+		UE_LOG(LogTemp, Warning, TEXT(">> LeftEyeBuffer[100] %s"), *LeftEyeBuffer[100].ToString());
+		UE_LOG(LogTemp, Warning, TEXT(">> LeftEyeBuffer[1000] %s"), *LeftEyeBuffer[1000].ToString());
+
+		SaveFrame(LeftEyeBuffer, TEXT("Left"), EImageFormat::PNG, CaptureWidth, CaptureHeight);
+		bReadPixelsStarted = false;
+
+		ReadDone();
+	}
+
 	if (!bIsTicking  || !CapturePlayerController)
 	{
 		return;
@@ -238,12 +303,12 @@ void UStereoCapturer::Tick(float DeltaTime)
 
 	// Read data from texture;
 	ReadCaptureComponent(LeftEyeCaptureComponent, LeftEyeBuffer);
-	ReadCaptureComponent(RigntEyeCaptureComponent, RightEyeBuffer);
+	//ReadCaptureComponent(RigntEyeCaptureComponent, RightEyeBuffer);
 
 	// Save Image
-	SaveStereoFrame(LeftEyeBuffer, RightEyeBuffer, TEXT("Stereo"), EImageFormat::PNG);
+	//SaveStereoFrame(LeftEyeBuffer, RightEyeBuffer, TEXT("Stereo"), EImageFormat::PNG);
 
-	// Dump out how long the process took
+	// Dump out how long the process took.
 	FDateTime EndTime = FDateTime::UtcNow();
 	FTimespan Duration = EndTime - StartTime;
 	UE_LOG(LogTemp, Warning, TEXT("Duration: %g seconds"), Duration.GetTotalSeconds());
@@ -252,8 +317,6 @@ void UStereoCapturer::Tick(float DeltaTime)
 	// Clean up
 	LeftEyeBuffer.Empty();
 	RightEyeBuffer.Empty();
-	StereoCaptureRenderCharacter->Cleanup();
 
-	bIsTicking = false;
 }
 
